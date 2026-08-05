@@ -1,0 +1,11 @@
+.\\FMTOWNS.obj
+
+-lib d:\hc386\small\snd
+-lib d:\hc386\small\tbios
+-lib d:\hc386\small\hce
+-lib d:\hc386\small\na
+-lib d:\hc386\small\HIS
+-TWOCASE
+-stack 131072
+-80386
+-exe MILPHEED.EXP
