@@ -14,8 +14,8 @@
 
 // The PCM format for the Sega CD(Mega CD) version of Silpheed is sign 8-bit, 16.272 Hz(Unconfirmed), stereo.
 // FM TOWNS and Sega CD use the same PCM chip, but their frequencies differ.(TOWNS is 8.0 MHz / 384 = 20.833 KHz, Sega CD is 12.5 MHz / 384 = 32.552 KHz)
-// When tested using a ring buffer method, the audio played back normally at this(0x62c = 15.48 KHz) rate on FM TOWNS.
-#define PCM_FREQ 0x62c
+// When tested using a ring buffer method, the audio played back normally at this(0x620 = 16 KHz) rate on FM TOWNS.
+#define PCM_FREQ 0x629
 
 // Video Format
 //  0: 8*8 Uncompressed	7.5 fps	(Files: A00,A09)
@@ -43,6 +43,7 @@ int file_pointer;
 unsigned char *read_buffer;
 
 int *name_table;
+unsigned char font_bit_table[1024];
 unsigned char pattern_table[1024][32];
 int video_format;
 
@@ -79,22 +80,30 @@ void draw()
 	i = 3;
 	do
 	{
+		_FP_OFF(vram) = (i * 512 * 8);
 		j = 0;
 		do
 		{
 			p = (unsigned int *)&pattern_table[name_table[k]][0];
-			_FP_OFF(vram) = (j * 4) + (i * 512 * 8);
 
 			vram[0] = p[0];
-			vram[128] = p[1];
+			_inline(0x8b, 0x41, 0x04, 0x65, 0x89, 0x82, 0x00, 0x02, 0x00, 0x00);
+			_inline(0x8b, 0x41, 0x08, 0x65, 0x89, 0x82, 0x00, 0x04, 0x00, 0x00);
+			_inline(0x8b, 0x41, 0x0c, 0x65, 0x89, 0x82, 0x00, 0x06, 0x00, 0x00);
+			_inline(0x8b, 0x41, 0x10, 0x65, 0x89, 0x82, 0x00, 0x08, 0x00, 0x00);
+			_inline(0x8b, 0x41, 0x14, 0x65, 0x89, 0x82, 0x00, 0x0a, 0x00, 0x00);
+			_inline(0x8b, 0x41, 0x18, 0x65, 0x89, 0x82, 0x00, 0x0c, 0x00, 0x00);
+			_inline(0x8b, 0x41, 0x1c, 0x65, 0x89, 0x82, 0x00, 0x0e, 0x00, 0x00);
+			/*vram[128] = p[1];
 			vram[256] = p[2];
 			vram[384] = p[3];
 			vram[512] = p[4];
 			vram[640] = p[5];
 			vram[768] = p[6];
-			vram[896] = p[7];
+			vram[896] = p[7];*/
 
-			 k++;
+			k++;
+			vram++;
 		} while(++j < 32);
 	} while(++i < 27);
 }
@@ -108,7 +117,7 @@ void display_init()
 	EGB_resolution( egb_work, 0, 3 );
 	EGB_displayPage(egb_work, 0, 1);
 	Write_CRTC_register(0, 0x50);
-	Write_CRTC_register(1, 0x2C0);
+	Write_CRTC_register(1, 0x24E);
 	Write_CRTC_register(4, 0x29D);
 	Write_CRTC_register(9, 0x82);
 	Write_CRTC_register(0xA, 0x282);
@@ -173,6 +182,29 @@ void pattern_init()
 	memset(&pattern_table[13][0], 0xdd, 32);
 	memset(&pattern_table[14][0], 0xee, 32);
 	memset(&pattern_table[15][0], 0xff, 32);
+}
+
+
+void font_bit_table_init()
+{
+	int i, j;
+	unsigned char k, msb, lsb;
+
+	i = 0;
+	do
+	{
+	
+		j = 0;
+		do
+		{
+			msb = (j & 0xf0) >> 4;
+			lsb = (j & 0x0f);
+			k = ((i & 0x200) ? msb : lsb);
+			k += ((i & 0x100) ? msb : lsb) << 4;
+			font_bit_table[i + j] = k;
+		} while(++j < 256);
+		i += 256;
+	} while(i < 1024);
 }
 
 
@@ -255,7 +287,7 @@ void decode1()
 		do
 		{
 			c = read_buffer[pattern_offset];
-			c = ((c >> 4) | (c << 4));
+			_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
 			pattern_table[i][j] = c;
 			pattern_offset++;
 		} while(++j < 32);
@@ -371,7 +403,7 @@ void decode2()
 				do
 				{
 					c = read_buffer[pattern_offset];
-					c = ((c >> 4) | (c << 4));
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
 					pattern_table[name_number][k] = c;
 					pattern_offset++;
 				} while(++k < 32);
@@ -379,26 +411,16 @@ void decode2()
 			else
 			{
 				// 8*8 2 colors (The Sega CD version used the "Font Bit" function.)
-				msb = (l & 0xf0) >> 4;
-				lsb = (l & 0x0f);
-				register unsigned char c;
+				unsigned char *font_ptr = &font_bit_table[l];
 				k = 0;
 				do
 				{
 					l = read_buffer[pattern_offset++];
 					unsigned char *ptr = &pattern_table[name_number][k];
-					c = ((l & 0x80) ? msb : lsb);
-					c |= ((l & 0x40) ? msb : lsb) << 4;
-					ptr[0] = c;
-					c = (l & 0x20) ? msb : lsb;
-					c |= ((l & 0x10) ? msb : lsb) << 4;
-					ptr[1] = c;
-					c = (l & 0x8) ? msb : lsb;
-					c |= ((l & 0x4) ? msb : lsb) << 4;
-					ptr[2] = c;
-					c = (l & 0x2) ? msb : lsb;
-					c |= ((l & 0x1) ? msb : lsb) << 4;
-					ptr[3] = c;
+					ptr[0] = font_ptr[((l << 2) & 0x300)];
+					ptr[1] = font_ptr[((l << 4) & 0x300)];
+					ptr[2] = font_ptr[((l << 6) & 0x300)];
+					ptr[3] = font_ptr[((l << 8) & 0x300)];
 					k += 4;
 				} while(k < 32);
 			}
@@ -429,7 +451,7 @@ void decode2()
 
 void decode3()
 {
-	int i, j, k, l;
+	int i, j, k;
 	unsigned char m;
 	int header_offset;
 	int namedata_offset;
@@ -510,17 +532,33 @@ void decode3()
 				coord = ((k & 2) << 3) + ((k & 1) << 1);
 				if(c == 1) // 4*4 uncompressed
 				{
-					l = 0;
-					do
-					{
-						c = read_buffer[pattern_offset++];
-						c = ((c >> 4) | (c << 4));
-						pattern_table[name_number][coord] = c;
-						c = read_buffer[pattern_offset++];
-						c = ((c >> 4) | (c << 4));
-						pattern_table[name_number][coord + 1] = c;
-						coord += 4;
-					} while(++l < 4);
+					unsigned char *ptr = &pattern_table[name_number][coord];
+					unsigned char *read_ptr = &read_buffer[pattern_offset];
+					c = read_ptr[0];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[0] = c;
+					c = read_ptr[1];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[1] = c;
+					c = read_ptr[2];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[4] = c;
+					c = read_ptr[3];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[5] = c;
+					c = read_ptr[4];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[8] = c;
+					c = read_ptr[5];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[9] = c;
+					c = read_ptr[6];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[12] = c;
+					c = read_ptr[7];
+					_inline(0xc0,0xc3,0x04); //rol    bl,0x4 : c = ((c >> 4) | (c << 4));
+					ptr[13] = c;
+					pattern_offset += 8;
 				}
 				else
 				{
@@ -531,40 +569,25 @@ void decode3()
 					{
 						unsigned char *ptr = &pattern_table[name_number][coord];
 						_fill_char(ptr, 2, c);
-						_fill_char(ptr + 4, 2, c);
+						_inline(0x66, 0x89, 0x5e, 0x04, 0x66, 0x89, 0x5e, 0x08, 0x66, 0x89, 0x5e, 0x0c);
+						/*_fill_char(ptr + 4, 2, c);
 						_fill_char(ptr + 8, 2, c);
-						_fill_char(ptr + 12, 2, c);
+						_fill_char(ptr + 12, 2, c);*/
 					}
 					else // 4*4 2 colors (The Sega CD version used the "Font Bit" function.)
 					{
-
 						unsigned char *ptr = &pattern_table[name_number][coord];
+						unsigned char *font_ptr = &font_bit_table[c];
 						m = read_buffer[pattern_offset++];
-						c = ((m & 0x80) ? msb : lsb);
-						c |= ((m & 0x40) ? msb : lsb) << 4;
-						ptr[0] = c;
-						c = (m & 0x20) ? msb : lsb;
-						c |= ((m & 0x10) ? msb : lsb) << 4;
-						ptr[1] = c;
-						c = (m & 0x8) ? msb : lsb;
-						c |= ((m & 0x4) ? msb : lsb) << 4;
-						ptr[4] = c;
-						c = (m & 0x2) ? msb : lsb;
-						c |= ((m & 0x1) ? msb : lsb) << 4;
-						ptr[5] = c;
+						ptr[0] = font_ptr[((m << 2) & 0x300)];
+						ptr[1] = font_ptr[((m << 4) & 0x300)];
+						ptr[4] = font_ptr[((m << 6) & 0x300)];
+						ptr[5] = font_ptr[((m << 8) & 0x300)];
 						m = read_buffer[pattern_offset++];
-						c = ((m & 0x80) ? msb : lsb);
-						c |= ((m & 0x40) ? msb : lsb) << 4;
-						ptr[8] = c;
-						c = (m & 0x20) ? msb : lsb;
-						c |= ((m & 0x10) ? msb : lsb) << 4;
-						ptr[9] = c;
-						c = (m & 0x8) ? msb : lsb;
-						c |= ((m & 0x4) ? msb : lsb) << 4;
-						ptr[12] = c;
-						c = (m & 0x2) ? msb : lsb;
-						c |= ((m & 0x1) ? msb : lsb) << 4;
-						ptr[13] = c;
+						ptr[8] = font_ptr[((m << 2) & 0x300)];
+						ptr[9] = font_ptr[((m << 4) & 0x300)];
+						ptr[12] = font_ptr[((m << 6) & 0x300)];
+						ptr[13] = font_ptr[((m << 8) & 0x300)];
 					}
 				}
 			} while(++k < 4);
@@ -581,10 +604,9 @@ void decode3()
 	{
 		unsigned char *ptr = &read_buffer[offset];
 		register unsigned char c;
-		i = 0;
+		i = pcm_sector * 1024;
 		j = 0;
 		k = 0;
-		l = pcm_sector * 1024;
 		do
 		{
 			c = ptr[k + j];
@@ -602,7 +624,7 @@ void decode3()
 				k = 0;
 				j += 2048;
 			}
-		} while(++i < l);
+		} while(--i);
 	}
 
 	file_pointer += pcm_sector * 2048;
@@ -667,7 +689,7 @@ int main(int argc, char *argv[])
 	{
 		printf("ファイル名が指定されていません\n");
 		printf("\n使い方: run386 milpheed 動画ファイル名\n[オプションコマンド] -c 動画アルゴリズム選択(0～2) -v 音量(0～127)\n");
-		return -1;
+		return 1;
 	}
 
 	i = len - 1;
@@ -702,14 +724,14 @@ int main(int argc, char *argv[])
 		printf("シルフィードデフォルト以外の動画ファイルのようです\n");
 		printf("動画アルゴリズムが指定されていません\n");
 		printf("\n使い方: run386 milpheed 動画ファイル名\n[オプションコマンド] -c 動画アルゴリズム選択(0～2) -v 音量(0～127)\n");
-		return -1;
+		return 1;
 	}
 
 	fp = fopen( filename, "rb" );
 	if(fp == NULL)
 	{
 		printf("ファイルが開けませんでした\n");
-		return -1;
+		return 1;
 	}
 	fseek(fp, 0, SEEK_END);
 	fgetpos(fp, &fsize);
@@ -739,6 +761,7 @@ int main(int argc, char *argv[])
 
 	name_table = (int *)malloc(32 * 24 * sizeof(int));
 	pattern_init();
+	font_bit_table_init();
 
 	HIS_stackArea( EGB_stack , stackSize );
 	HIS_setHandler( VSYNCintNumber , VSYNChandler );
