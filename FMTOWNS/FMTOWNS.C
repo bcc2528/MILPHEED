@@ -831,7 +831,7 @@ int main(int argc, char *argv[])
 
 		// Vsync wait
 		do{} while(VsyncCount < wait_flag);
-		VsyncCount = 0;
+		VsyncCount = VsyncCount - wait_flag;
 	}
 
 

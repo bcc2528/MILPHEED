@@ -98,6 +98,7 @@ unsigned char *read_buffer;
 short name_table[768];
 unsigned short pattern_table[1024][64];
 int video_format;
+unsigned short palette_table[16];
 
 struct pcm_chain {
   void *start_address;
@@ -148,6 +149,14 @@ void draw()
 			}
 
 			k++;
+		}
+	}
+
+	if(palette_table[0] == 1)
+	{
+		for(i = 1; i < 16;i++)
+		{
+			gpal[i] = palette_table[i];
 		}
 	}
 
@@ -224,6 +233,7 @@ void decode1()
 	k = read_buffer[2];
 	if (k & 0x80)
 	{
+		palette_table[0] = 1;
 		i = 1;
 		do
 		{
@@ -234,8 +244,12 @@ void decode1()
 			unsigned short red = (lsb & 0x0f) << 7;
 			unsigned short blue = (msb & 0x0f) << 2;
 
-			gpal[i] = green + red + blue + 1;
+			palette_table[i] = green + red + blue + 1;
 		} while(++i < 16);
+	}
+	else
+	{
+		palette_table[0] = 0;
 	}
 	if (k & 0x40)
 	{
@@ -332,6 +346,7 @@ void decode2()
 	l = read_buffer[2];
 	if (l & 0x80)
 	{
+		palette_table[0] = 1;
 		i = 1;
 		do
 		{
@@ -342,8 +357,12 @@ void decode2()
 			unsigned short red = (lsb & 0x0f) << 7;
 			unsigned short blue = (msb & 0x0f) << 2;
 
-			gpal[i] = green + red + blue + 1;
+			palette_table[i] = green + red + blue + 1;
 		} while(++i < 16);
+	}
+	else
+	{
+		palette_table[0] = 0;
 	}
 	if (l & 0x40)
 	{
@@ -473,6 +492,7 @@ void decode3()
 	m = read_buffer[2];
 	if (m & 0x80)
 	{
+		palette_table[0] = 1;
 		i = 1;
 		do
 		{
@@ -483,8 +503,12 @@ void decode3()
 			unsigned short red = (lsb & 0x0f) << 7;
 			unsigned short blue = (msb & 0x0f) << 2;
 
-			gpal[i] = green + red + blue + 1;
+			palette_table[i] = green + red + blue + 1;
 		} while(++i < 16);
+	}
+	else
+	{
+		palette_table[0] = 0;
 	}
 	if (m & 0x40)
 	{
@@ -615,10 +639,9 @@ void decode3()
 	{
 		unsigned char *ptr = &read_buffer[offset];
 		unsigned short sum;
-		i = 0;
+		i = pcm_sector * 1024;
 		j = 0;
 		k = 0;
-		l = pcm_sector * 1024;
 		do
 		{
 			m = ptr[k + j];
@@ -638,7 +661,7 @@ void decode3()
 				k = 0;
 				j += 2048;
 			}
-		} while(++i < l);
+		} while(--i);
 	}
 
 	file_pointer += pcm_sector * 2048;
@@ -869,11 +892,11 @@ int main(int argc, char *argv[])
 		draw();
 
 		// Timer wait
-		while(wait_count < wait_flag)
+		do
 		{
 			key = (BITSNS(0) & 0x2) >> 1;
-		}
-		wait_count = 0;
+		} while(wait_count < wait_flag);
+		wait_count = wait_count - wait_flag;
 		if(key == 1)
 		{
 			break;
